@@ -1,0 +1,9 @@
+{
+  "domain": "madvognen",
+  "name": "Madvognen Menu",
+  "documentation": "https://github.com/rassos/madvognen",
+  "dependencies": [],
+  "codeowners": ["@rasso"],
+  "requirements": ["pytz"],
+  "version": "0.1.0"
+}
