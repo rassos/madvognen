@@ -29,8 +29,11 @@ class MadvognenWeeklyMenuSensor(Entity):
     def __init__(self, hass, config_entry):
         self.hass = hass
         self._config_entry = config_entry
-        self._attr_name = "Madvognen Weekly Menu"
-        self._attr_unique_id = "madvognen_weekly_menu"
+        
+        # Get customer group name for a more descriptive sensor name
+        customer_group_name = config_entry.data.get("customer_group_name", "Unknown")
+        self._attr_name = f"Madvognen Menu - {customer_group_name}"
+        self._attr_unique_id = f"madvognen_weekly_menu_{config_entry.data.get('customer_group_id', 252)}"
         self._state = None
         self._attr_extra_state_attributes = {}
         self._available = True
