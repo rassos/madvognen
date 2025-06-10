@@ -1,109 +1,90 @@
+import asyncio
 import datetime
 import logging
-import pytz
+from zoneinfo import ZoneInfo
 import aiohttp
-import async_timeout
 
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_change
-from homeassistant.const import STATE_UNAVAILABLE
-from .const import DOMAIN, BASE_URL, CPH_TIMEZONE
+from homeassistant.util import dt as dt_util
+
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+BASE_URL = "https://madvognen.dk/getservice.php?action=hentmenukundegruppe&KundegruppeID=252&millis={millis}"
+CPH_TIMEZONE = "Europe/Copenhagen"
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Madvognen sensor platform."""
-    
-    # Create and add the sensor entity
-    sensor = MadvognenWeeklyMenuSensor(hass, config_entry)
+    """Set up the Madvognen sensor from a config entry."""
+    sensor = MadvognenWeeklyMenuSensor(config_entry)
     async_add_entities([sensor], True)
 
-class MadvognenWeeklyMenuSensor(Entity):
-    def __init__(self, hass, config_entry):
-        self.hass = hass
+
+class MadvognenWeeklyMenuSensor(SensorEntity):
+    """Sensor for Madvognen weekly menu."""
+
+    def __init__(self, config_entry: ConfigEntry):
+        """Initialize the sensor."""
         self._config_entry = config_entry
-        
-        # Get customer group name for a more descriptive sensor name
         customer_group_name = config_entry.data.get("customer_group_name", "Unknown")
-        self._attr_name = f"Madvognen Menu - {customer_group_name}"
-        self._attr_unique_id = f"madvognen_weekly_menu_{config_entry.data.get('customer_group_id', 252)}"
+        self._attr_name = f"Madvognen Menu {customer_group_name}"
+        self._attr_unique_id = f"madvognen_menu_{customer_group_name.lower().replace(' ', '_')}"
+        self._attr_icon = "mdi:food"
         self._state = None
         self._attr_extra_state_attributes = {}
-        self._available = True
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self._available
 
     @property
     def state(self):
         """Return the state of the sensor."""
         return self._state
 
-    @property
-    def icon(self):
-        """Return the icon to use in the frontend."""
-        return "mdi:food"
-
-    async def async_added_to_hass(self):
-        """Set up the scheduled update."""
-        # Update every day at 6 AM to get fresh data
-        async_track_time_change(
-            self.hass,
-            self._schedule_update,
-            hour=6,
-            minute=0,
-            second=0
-        )
-        # Also update immediately when added
-        await self.async_update()
-
-    async def _schedule_update(self, now):
-        """Called by the time tracking."""
-        await self.async_update()
-
     async def async_update(self):
-        """Fetch the weekly menu data."""
+        """Update the sensor."""
         try:
-            tz = pytz.timezone(CPH_TIMEZONE)
-            today = datetime.datetime.now(tz).date()
+            # Get current Monday in Copenhagen timezone
+            tz = ZoneInfo(CPH_TIMEZONE)
+            now = dt_util.now().astimezone(tz)
+            current_date = now.date()
             
-            # Get current week's menu (Monday to Friday)
-            # If it's weekend, get next week's menu
-            if today.weekday() >= 5:  # Saturday or Sunday
-                monday = today + datetime.timedelta(days=-today.weekday(), weeks=1)
-            else:
-                monday = today - datetime.timedelta(days=today.weekday())
-
+            # Calculate Monday of this week
+            days_since_monday = current_date.weekday()
+            monday = current_date - datetime.timedelta(days=days_since_monday)
+            
             _LOGGER.debug("Fetching menu for week starting %s", monday)
             
+            # Fetch menu data
             week_data = await self._fetch_week_data(monday)
             
             if week_data:
-                week_number = monday.isocalendar()[1]
-                self._state = f"{monday.year}-W{week_number:02d}"
-                self._attr_extra_state_attributes = {
-                    "week_start": monday.isoformat(),
-                    "last_updated": datetime.datetime.now(tz).isoformat(),
-                    **week_data
-                }
-                self._available = True
+                self._attr_extra_state_attributes.update(week_data)
+                self._attr_extra_state_attributes["last_updated"] = now.isoformat()
+                self._state = f"Week {monday.strftime('%Y-W%U')}"
                 _LOGGER.debug("Successfully updated menu data")
             else:
-                self._available = False
+                # Don't clear existing data on failure, just update the last_updated
+                # Only clear if it's a fresh start with no data
+                if not hasattr(self, '_state') or self._state is None:
+                    self._state = "unavailable"
+                    self._attr_extra_state_attributes = {}
+                else:
+                    # Keep existing data but update timestamp to show we tried
+                    self._attr_extra_state_attributes["last_updated"] = now.isoformat()
+                    self._attr_extra_state_attributes["last_error"] = "Failed to fetch menu data"
                 _LOGGER.warning("Failed to fetch menu data")
-
+                
         except Exception as e:
-            _LOGGER.error("Error updating madvognen menu: %s", e)
-            self._available = False
+            # Keep existing data on error, just log it
+            _LOGGER.error("Error updating Madvognen sensor: %s", e)
+            if not hasattr(self, '_state') or self._state is None:
+                self._state = "unavailable"
+                self._attr_extra_state_attributes = {}
 
     async def _fetch_week_data(self, monday):
         """Fetch menu data for a full week."""
