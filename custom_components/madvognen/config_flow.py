@@ -136,7 +136,7 @@ class MadvognenOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
         """Initialize options flow."""
-        self.config_entry = config_entry
+        self._config_entry = config_entry
         self._customer_groups = {}
 
     async def async_step_init(self, user_input=None):
@@ -165,7 +165,7 @@ class MadvognenOptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         # Get current selection
-        current_name = self.config_entry.data.get("customer_group_name")
+        current_name = self._config_entry.data.get("customer_group_name")
         customer_group_options = list(self._customer_groups.keys()) if self._customer_groups else []
         
         return self.async_show_form(
