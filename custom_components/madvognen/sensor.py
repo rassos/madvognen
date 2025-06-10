@@ -190,6 +190,15 @@ class MadvognenWeeklyMenuSensor(Entity):
         if not isinstance(data, dict):
             _LOGGER.warning("Invalid data format received")
             return []
+        
+        # Check if the returned date matches our request
+        returned_date = data.get("dato")
+        requested_date_str = requested_date.strftime("%Y-%m-%d")
+        
+        if returned_date != requested_date_str:
+            _LOGGER.info("API returned date %s but we requested %s - no menu available for requested date", 
+                        returned_date, requested_date_str)
+            return []
             
         menuoverskrifter = data.get("menuoverskrifter", {})
         if not menuoverskrifter:
@@ -220,11 +229,5 @@ class MadvognenWeeklyMenuSensor(Entity):
                     if name and name.strip():
                         items.append(name.strip())
         
-        # Additional validation: if we get the exact same menu as yesterday/tomorrow,
-        # it might be a fallback response from the API
-        if len(items) > 0:
-            _LOGGER.debug("Found %d menu items for %s", len(items), requested_date)
-        else:
-            _LOGGER.debug("No valid menu items parsed for %s", requested_date)
-            
+        _LOGGER.debug("Found %d menu items for %s (API date: %s)", len(items), requested_date, returned_date)
         return items
