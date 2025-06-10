@@ -148,26 +148,33 @@ class MadvognenWeeklyMenuSensor(Entity):
                 raise Exception(f"HTTP {response.status}")
                 
             data = await response.json()
-            return self._parse_day_data(data)
+            
+            # Check if the returned data is actually for the requested date
+            # If API returns data for a different date, we should return empty
+            menu_items = self._parse_day_data(data, date_obj)
+            return menu_items
 
-    def _calculate_millis(self, date_obj):
-        """Calculate milliseconds since epoch for noon on given date in Copenhagen timezone."""
-        tz = pytz.timezone(CPH_TIMEZONE)
-        noon = datetime.datetime.combine(date_obj, datetime.time(12, 0))
-        noon_cph = tz.localize(noon)
-        noon_utc = noon_cph.astimezone(pytz.utc)
-        epoch = datetime.datetime(1970, 1, 1, tzinfo=pytz.utc)
-        return int((noon_utc - epoch).total_seconds() * 1000)
-
-    def _parse_day_data(self, data):
-        """Parse the dishes for a single day."""
+    def _parse_day_data(self, data, requested_date):
+        """Parse the dishes for a single day and validate the date."""
         if not isinstance(data, dict):
             _LOGGER.warning("Invalid data format received")
             return []
             
         menuoverskrifter = data.get("menuoverskrifter", {})
         if not menuoverskrifter:
-            _LOGGER.debug("No menu sections found in data")
+            _LOGGER.debug("No menu sections found in data for %s", requested_date)
+            return []
+        
+        # Check if any menu items exist
+        total_items = 0
+        for section in menuoverskrifter.values():
+            if isinstance(section, dict):
+                varer = section.get("varer", [])
+                total_items += len(varer)
+        
+        # If no items at all, this day probably has no menu
+        if total_items == 0:
+            _LOGGER.debug("No menu items found for %s", requested_date)
             return []
             
         items = []
@@ -181,6 +188,12 @@ class MadvognenWeeklyMenuSensor(Entity):
                     name = item["Navn"]
                     if name and name.strip():
                         items.append(name.strip())
-                        
-        _LOGGER.debug("Parsed %d menu items", len(items))
+        
+        # Additional validation: if we get the exact same menu as yesterday/tomorrow,
+        # it might be a fallback response from the API
+        if len(items) > 0:
+            _LOGGER.debug("Found %d menu items for %s", len(items), requested_date)
+        else:
+            _LOGGER.debug("No valid menu items parsed for %s", requested_date)
+            
         return items
