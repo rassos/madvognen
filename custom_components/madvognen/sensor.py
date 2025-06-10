@@ -110,8 +110,11 @@ class MadvognenWeeklyMenuSensor(Entity):
         week_data = {}
         previous_menu = None
         
+        # Add rate limiting to prevent HTTP 403 errors
         timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        connector = aiohttp.TCPConnector(limit=1)  # Limit concurrent connections
+        
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             for day_offset in range(5):  # Monday to Friday
                 day = monday + datetime.timedelta(days=day_offset)
                 day_name = day.strftime("%A")
@@ -146,6 +149,10 @@ class MadvognenWeeklyMenuSensor(Entity):
                     
                     _LOGGER.debug("Fetched %d items for %s", len(menu_items), day_name)
                     
+                    # Add delay between requests to prevent rate limiting
+                    if day_offset < 4:  # Don't delay after the last request
+                        await asyncio.sleep(1)
+                    
                 except Exception as e:
                     _LOGGER.warning("Failed to fetch menu for %s: %s", day_name, e)
                     week_data[day_name.lower()] = {
@@ -154,6 +161,10 @@ class MadvognenWeeklyMenuSensor(Entity):
                         "available": False,
                         "error": str(e)
                     }
+                    
+                    # Add delay even on error to prevent rapid retries
+                    if day_offset < 4:
+                        await asyncio.sleep(1)
 
         return week_data if any(day["available"] for day in week_data.values()) else None
 
@@ -178,12 +189,10 @@ class MadvognenWeeklyMenuSensor(Entity):
 
     def _calculate_millis(self, date_obj):
         """Calculate milliseconds since epoch for noon on given date in Copenhagen timezone."""
-        tz = pytz.timezone(CPH_TIMEZONE)
-        noon = datetime.datetime.combine(date_obj, datetime.time(12, 0))
-        noon_cph = tz.localize(noon)
-        noon_utc = noon_cph.astimezone(pytz.utc)
-        epoch = datetime.datetime(1970, 1, 1, tzinfo=pytz.utc)
-        return int((noon_utc - epoch).total_seconds() * 1000)
+        tz = ZoneInfo(CPH_TIMEZONE)
+        noon = datetime.datetime.combine(date_obj, datetime.time(12, 0), tzinfo=tz)
+        epoch = datetime.datetime(1970, 1, 1, tzinfo=ZoneInfo('UTC'))
+        return int((noon - epoch).total_seconds() * 1000)
 
     def _parse_day_data(self, data, requested_date):
         """Parse the dishes for a single day and validate the date."""
