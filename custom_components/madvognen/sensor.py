@@ -176,6 +176,15 @@ class MadvognenWeeklyMenuSensor(Entity):
             menu_items = self._parse_day_data(data, date_obj)
             return menu_items
 
+    def _calculate_millis(self, date_obj):
+        """Calculate milliseconds since epoch for noon on given date in Copenhagen timezone."""
+        tz = pytz.timezone(CPH_TIMEZONE)
+        noon = datetime.datetime.combine(date_obj, datetime.time(12, 0))
+        noon_cph = tz.localize(noon)
+        noon_utc = noon_cph.astimezone(pytz.utc)
+        epoch = datetime.datetime(1970, 1, 1, tzinfo=pytz.utc)
+        return int((noon_utc - epoch).total_seconds() * 1000)
+
     def _parse_day_data(self, data, requested_date):
         """Parse the dishes for a single day and validate the date."""
         if not isinstance(data, dict):
