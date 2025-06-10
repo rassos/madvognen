@@ -108,6 +108,7 @@ class MadvognenWeeklyMenuSensor(Entity):
     async def _fetch_week_data(self, monday):
         """Fetch menu data for a full week."""
         week_data = {}
+        previous_menu = None
         
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -117,11 +118,32 @@ class MadvognenWeeklyMenuSensor(Entity):
                 
                 try:
                     menu_items = await self._fetch_day_menu(session, day)
-                    week_data[day_name.lower()] = {
-                        "date": day.isoformat(),
-                        "items": menu_items,
-                        "available": len(menu_items) > 0
-                    }
+                    
+                    # Check if this menu is identical to the previous day
+                    # If so, it might be a fallback response from the API
+                    if menu_items and previous_menu and menu_items == previous_menu:
+                        _LOGGER.warning("Menu for %s is identical to previous day - might be API fallback", day_name)
+                        # For now, we'll still include it, but mark it as potentially incorrect
+                        week_data[day_name.lower()] = {
+                            "date": day.isoformat(),
+                            "items": menu_items,
+                            "available": True,
+                            "note": "Might be repeated from previous day"
+                        }
+                    elif menu_items:
+                        week_data[day_name.lower()] = {
+                            "date": day.isoformat(),
+                            "items": menu_items,
+                            "available": True
+                        }
+                        previous_menu = menu_items.copy()  # Store for comparison
+                    else:
+                        week_data[day_name.lower()] = {
+                            "date": day.isoformat(),
+                            "items": [],
+                            "available": False
+                        }
+                    
                     _LOGGER.debug("Fetched %d items for %s", len(menu_items), day_name)
                     
                 except Exception as e:
