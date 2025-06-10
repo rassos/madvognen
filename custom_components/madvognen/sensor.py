@@ -4,12 +4,26 @@ import pytz
 import aiohttp
 import async_timeout
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.const import STATE_UNAVAILABLE
 from .const import DOMAIN, BASE_URL, CPH_TIMEZONE
 
 _LOGGER = logging.getLogger(__name__)
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the Madvognen sensor platform."""
+    
+    # Create and add the sensor entity
+    sensor = MadvognenWeeklyMenuSensor(hass, config_entry)
+    async_add_entities([sensor], True)
 
 class MadvognenWeeklyMenuSensor(Entity):
     def __init__(self, hass, config_entry):
