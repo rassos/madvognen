@@ -17,6 +17,13 @@ _LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://madvognen.dk/getservice.php?action=hentmenukundegruppe&KundegruppeID=252&millis={millis}"
 CPH_TIMEZONE = "Europe/Copenhagen"
 
+# Danish month names for text formatting
+DANISH_MONTHS = {
+    1: "januar", 2: "februar", 3: "marts", 4: "april",
+    5: "maj", 6: "juni", 7: "juli", 8: "august", 
+    9: "september", 10: "oktober", 11: "november", 12: "december"
+}
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -25,6 +32,15 @@ async def async_setup_entry(
     """Set up the Madvognen sensor from a config entry."""
     sensor = MadvognenWeeklyMenuSensor(config_entry)
     async_add_entities([sensor], True)
+    
+    # Listen for options updates
+    async def async_update_options(hass, config_entry):
+        """Update options."""
+        await hass.config_entries.async_reload(config_entry.entry_id)
+    
+    config_entry.async_on_unload(
+        config_entry.add_update_listener(async_update_options)
+    )
 
 
 class MadvognenWeeklyMenuSensor(SensorEntity):
@@ -39,6 +55,12 @@ class MadvognenWeeklyMenuSensor(SensorEntity):
         self._attr_icon = "mdi:food"
         self._state = None
         self._attr_extra_state_attributes = {}
+        
+        # Get date format preference
+        self._date_format = config_entry.options.get(
+            "date_format", 
+            config_entry.data.get("date_format", "danish")
+        )
 
     @property
     def state(self):
@@ -119,14 +141,16 @@ class MadvognenWeeklyMenuSensor(SensorEntity):
                         }
                     elif menu_items:
                         week_data[day_name.lower()] = {
-                            "date": day.isoformat(),
+                            "date": self._format_date(day),
+                            "date_iso": day.isoformat(),  # Keep ISO for internal use
                             "items": menu_items,
                             "available": True
                         }
                         previous_menu = menu_items.copy()  # Store for comparison
                     else:
                         week_data[day_name.lower()] = {
-                            "date": day.isoformat(),
+                            "date": self._format_date(day),
+                            "date_iso": day.isoformat(),
                             "items": [],
                             "available": False
                         }
@@ -140,7 +164,8 @@ class MadvognenWeeklyMenuSensor(SensorEntity):
                 except Exception as e:
                     _LOGGER.warning("Failed to fetch menu for %s: %s", day_name, e)
                     week_data[day_name.lower()] = {
-                        "date": day.isoformat(),
+                        "date": self._format_date(day),
+                        "date_iso": day.isoformat(),
                         "items": [],
                         "available": False,
                         "error": str(e)
@@ -176,10 +201,31 @@ class MadvognenWeeklyMenuSensor(SensorEntity):
         days_since_monday = current_date.weekday()
         current_week_monday = current_date - datetime.timedelta(days=days_since_monday)
         
+        formatted_date = self._format_date(monday)
+        
         if monday == current_week_monday:
-            return f"This week ({monday.strftime('%b %d')})"
+            return f"This week ({formatted_date})"
         else:
-            return f"Next week ({monday.strftime('%b %d')})"
+            return f"Next week ({formatted_date})"
+
+    def _format_date(self, date_obj):
+        """Format date according to user preference."""
+        if self._date_format == "iso":
+            return date_obj.strftime("%Y-%m-%d")
+        elif self._date_format == "danish":
+            return date_obj.strftime("%d/%m/%Y")
+        elif self._date_format == "danish_short":
+            return date_obj.strftime("%d/%m")
+        elif self._date_format == "danish_text":
+            month_name = DANISH_MONTHS[date_obj.month]
+            return f"{date_obj.day}. {month_name}"
+        elif self._date_format == "english":
+            return date_obj.strftime("%B %d, %Y")
+        elif self._date_format == "english_short":
+            return date_obj.strftime("%b %d")
+        else:
+            # Default to Danish format
+            return date_obj.strftime("%d/%m/%Y")
 
     def _get_relevant_monday(self, current_date, current_time):
         """Get the Monday of the week we should show the menu for.
