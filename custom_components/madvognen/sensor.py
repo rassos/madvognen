@@ -48,16 +48,16 @@ class MadvognenWeeklyMenuSensor(SensorEntity):
     async def async_update(self):
         """Update the sensor."""
         try:
-            # Get current Monday in Copenhagen timezone
+            # Get current time in Copenhagen timezone
             tz = ZoneInfo(CPH_TIMEZONE)
             now = dt_util.now().astimezone(tz)
             current_date = now.date()
+            current_time = now.time()
             
-            # Calculate Monday of this week
-            days_since_monday = current_date.weekday()
-            monday = current_date - datetime.timedelta(days=days_since_monday)
+            # Smart week selection based on day and time
+            monday = self._get_relevant_monday(current_date, current_time)
             
-            _LOGGER.debug("Fetching menu for week starting %s", monday)
+            _LOGGER.debug("Fetching menu for week starting %s (today is %s)", monday, current_date)
             
             # Fetch menu data
             week_data = await self._fetch_week_data(monday)
@@ -65,8 +65,11 @@ class MadvognenWeeklyMenuSensor(SensorEntity):
             if week_data:
                 self._attr_extra_state_attributes.update(week_data)
                 self._attr_extra_state_attributes["last_updated"] = now.isoformat()
-                self._state = f"Week {monday.strftime('%Y-W%U')}"
-                _LOGGER.debug("Successfully updated menu data")
+                
+                # Create a more informative state
+                week_info = self._get_week_description(monday, current_date)
+                self._state = week_info
+                _LOGGER.debug("Successfully updated menu data for %s", week_info)
             else:
                 # Don't clear existing data on failure, just update the last_updated
                 # Only clear if it's a fresh start with no data
@@ -167,6 +170,42 @@ class MadvognenWeeklyMenuSensor(SensorEntity):
             # If API returns data for a different date, we should return empty
             menu_items = self._parse_day_data(data, date_obj)
             return menu_items
+
+    def _get_week_description(self, monday, current_date):
+        """Get a human-readable description of which week we're showing."""
+        days_since_monday = current_date.weekday()
+        current_week_monday = current_date - datetime.timedelta(days=days_since_monday)
+        
+        if monday == current_week_monday:
+            return f"This week ({monday.strftime('%b %d')})"
+        else:
+            return f"Next week ({monday.strftime('%b %d')})"
+
+    def _get_relevant_monday(self, current_date, current_time):
+        """Get the Monday of the week we should show the menu for.
+        
+        Logic:
+        - Monday-Thursday: Show current week
+        - Friday after 14:00 (2 PM): Show next week (weekend prep)
+        - Friday before 14:00: Show current week
+        - Saturday-Sunday: Show next week
+        """
+        days_since_monday = current_date.weekday()
+        current_monday = current_date - datetime.timedelta(days=days_since_monday)
+        next_monday = current_monday + datetime.timedelta(days=7)
+        
+        weekday = current_date.weekday()  # 0=Monday, 6=Sunday
+        
+        if weekday <= 3:  # Monday to Thursday
+            return current_monday
+        elif weekday == 4:  # Friday
+            # After 2 PM on Friday, show next week
+            if current_time >= datetime.time(14, 0):
+                return next_monday
+            else:
+                return current_monday
+        else:  # Saturday (5) or Sunday (6)
+            return next_monday
 
     def _calculate_millis(self, date_obj):
         """Calculate milliseconds since epoch for noon on given date in Copenhagen timezone."""
