@@ -122,7 +122,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _fetch_customer_groups(self):
         """Fetch customer groups from Madvognen API."""
-        url = "https://madvognen.dk/getservice.php?action=hentkundegrupper"
+        url = "https://madvognen.dk/getservice.php?action=hentkundegruppe&kvikMenu=true"
         
         try:
             timeout = aiohttp.ClientTimeout(total=15)
