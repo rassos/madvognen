@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Madvognen Setup",
-        "description": "Set up Madvognen menu integration. This will fetch available customer groups.",
+        "description": "This will fetch available customer groups from Madvognen.",
         "data": {}
       },
       "select_group": {
@@ -22,7 +22,6 @@
       }
     },
     "error": {
-      "already_configured": "This customer group is already configured",
       "cannot_connect": "Failed to connect to Madvognen API. Please check your internet connection and try again.",
       "no_customer_groups": "No customer groups found in the API response",
       "invalid_group": "Invalid customer group selected",
