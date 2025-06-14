@@ -3,20 +3,9 @@
     "step": {
       "user": {
         "title": "Madvognen Setup",
-        "description": "This will fetch available customer groups from Madvognen.",
-        "data": {}
-      },
-      "select_group": {
-        "title": "Select Customer Group",
-        "description": "Found {count} customer groups. Please select your school/institution.",
+        "description": "Select your school/institution and preferred date format.\n\nLoaded {count} customer groups.",
         "data": {
-          "customer_group": "Customer Group"
-        }
-      },
-      "date_format": {
-        "title": "Date Format",
-        "description": "Choose how dates should be displayed for {group_name}.",
-        "data": {
+          "customer_group": "School/Institution",
           "date_format": "Date Format"
         }
       }
