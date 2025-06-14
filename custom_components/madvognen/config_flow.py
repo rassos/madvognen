@@ -33,21 +33,35 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
+        errors = {}
+        
         if user_input is not None:
             try:
                 # Fetch customer groups
+                _LOGGER.debug("Starting to fetch customer groups...")
                 self.customer_groups = await self._fetch_customer_groups()
-                if not self.customer_groups:
-                    return self.async_abort(reason="no_customer_groups")
                 
-                return await self.async_step_select_group()
+                if not self.customer_groups:
+                    _LOGGER.error("No customer groups returned from API")
+                    errors["base"] = "no_customer_groups"
+                else:
+                    _LOGGER.debug("Successfully fetched %d groups, proceeding to selection", len(self.customer_groups))
+                    return await self.async_step_select_group()
+                    
+            except CannotConnect as e:
+                _LOGGER.error("Cannot connect to Madvognen API: %s", e)
+                errors["base"] = "cannot_connect"
+            except InvalidData as e:
+                _LOGGER.error("Invalid data from Madvognen API: %s", e)
+                errors["base"] = "invalid_data"
             except Exception as e:
-                _LOGGER.error("Error fetching customer groups: %s", e)
-                return self.async_abort(reason="cannot_connect")
+                _LOGGER.error("Unexpected error during setup: %s", e, exc_info=True)
+                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({}),
+            errors=errors,
             description_placeholders={
                 "description": "This will fetch available customer groups from Madvognen."
             }
@@ -110,28 +124,72 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Fetch customer groups from Madvognen API."""
         url = "https://madvognen.dk/getservice.php?action=hentkundegrupper"
         
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    raise CannotConnect()
-                
-                data = await response.json()
-                
-                if not isinstance(data, dict) or "kundegrupper" not in data:
-                    _LOGGER.error("Invalid response format: %s", data)
-                    raise InvalidData()
-                
-                groups = []
-                for group_id, group_data in data["kundegrupper"].items():
-                    if isinstance(group_data, dict) and "navn" in group_data:
-                        groups.append({
-                            "id": int(group_id),
-                            "name": group_data["navn"]
-                        })
-                
-                _LOGGER.debug("Fetched %d customer groups", len(groups))
-                return sorted(groups, key=lambda x: x["name"])
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                _LOGGER.debug("Fetching customer groups from: %s", url)
+                async with session.get(url) as response:
+                    _LOGGER.debug("Response status: %s", response.status)
+                    
+                    if response.status != 200:
+                        _LOGGER.error("API returned status %s", response.status)
+                        raise CannotConnect(f"API returned status {response.status}")
+                    
+                    content_type = response.headers.get('content-type', '')
+                    _LOGGER.debug("Response content-type: %s", content_type)
+                    
+                    # Try to get raw text first for debugging
+                    text_data = await response.text()
+                    _LOGGER.debug("Raw response (first 500 chars): %s", text_data[:500])
+                    
+                    # Try to parse as JSON
+                    try:
+                        data = await response.json()
+                    except Exception as json_error:
+                        _LOGGER.error("Failed to parse JSON response: %s", json_error)
+                        _LOGGER.error("Raw response: %s", text_data)
+                        raise InvalidData(f"Invalid JSON response: {json_error}")
+                    
+                    if not isinstance(data, dict):
+                        _LOGGER.error("Response is not a dictionary: %s", type(data))
+                        raise InvalidData(f"Expected dict, got {type(data)}")
+                    
+                    if "kundegrupper" not in data:
+                        _LOGGER.error("No 'kundegrupper' in response. Keys: %s", list(data.keys()))
+                        raise InvalidData("Missing 'kundegrupper' in response")
+                    
+                    kundegrupper = data["kundegrupper"]
+                    if not isinstance(kundegrupper, dict):
+                        _LOGGER.error("kundegrupper is not a dict: %s", type(kundegrupper))
+                        raise InvalidData(f"kundegrupper should be dict, got {type(kundegrupper)}")
+                    
+                    groups = []
+                    for group_id, group_data in kundegrupper.items():
+                        if isinstance(group_data, dict) and "navn" in group_data:
+                            try:
+                                groups.append({
+                                    "id": int(group_id),
+                                    "name": group_data["navn"]
+                                })
+                            except ValueError as e:
+                                _LOGGER.warning("Skipping group with invalid ID '%s': %s", group_id, e)
+                                continue
+                        else:
+                            _LOGGER.warning("Skipping invalid group data for ID %s: %s", group_id, group_data)
+                    
+                    if not groups:
+                        _LOGGER.error("No valid groups found in response")
+                        raise InvalidData("No valid customer groups found")
+                    
+                    _LOGGER.debug("Successfully fetched %d customer groups", len(groups))
+                    return sorted(groups, key=lambda x: x["name"])
+                    
+        except aiohttp.ClientError as e:
+            _LOGGER.error("Network error fetching customer groups: %s", e)
+            raise CannotConnect(f"Network error: {e}")
+        except Exception as e:
+            _LOGGER.error("Unexpected error fetching customer groups: %s", e, exc_info=True)
+            raise CannotConnect(f"Unexpected error: {e}")
 
     @staticmethod
     def async_get_options_flow(config_entry):
