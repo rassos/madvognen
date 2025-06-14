@@ -3,7 +3,8 @@
     "step": {
       "user": {
         "title": "Madvognen Setup",
-        "description": "Set up Madvognen menu integration. This will fetch available customer groups."
+        "description": "Set up Madvognen menu integration. This will fetch available customer groups.",
+        "data": {}
       },
       "select_group": {
         "title": "Select Customer Group",
@@ -19,6 +20,14 @@
           "date_format": "Date Format"
         }
       }
+    },
+    "error": {
+      "already_configured": "This customer group is already configured",
+      "cannot_connect": "Failed to connect to Madvognen API. Please check your internet connection and try again.",
+      "no_customer_groups": "No customer groups found in the API response",
+      "invalid_group": "Invalid customer group selected",
+      "invalid_data": "The API returned invalid data. Please try again later.",
+      "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {
       "already_configured": "This customer group is already configured",
