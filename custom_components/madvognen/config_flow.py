@@ -135,134 +135,131 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         _LOGGER.error("API returned status %s", response.status)
                         raise CannotConnect(f"API returned status {response.status}")
                     
-                    # Get response text for debugging
+                    content_type = response.headers.get('content-type', '')
+                    _LOGGER.debug("Response content-type: %s", content_type)
+                    
+                    # Try to get raw text first for debugging
                     text_data = await response.text()
                     _LOGGER.debug("Raw response (first 500 chars): %s", text_data[:500])
                     
-                    # Parse JSON
+                    # Try to parse as JSON
                     try:
                         data = await response.json()
-                        _LOGGER.debug("JSON parsed successfully. Type: %s", type(data))
                     except Exception as json_error:
                         _LOGGER.error("Failed to parse JSON response: %s", json_error)
+                        _LOGGER.error("Raw response: %s", text_data)
                         raise InvalidData(f"Invalid JSON response: {json_error}")
+                    
+                    _LOGGER.debug("Response type: %s", type(data))
+                    _LOGGER.debug("Response data: %s", str(data)[:500])
                     
                     groups = []
                     
-                    # Handle list format (what the API actually returns)
                     if isinstance(data, list):
+                        # API returns a list of customer groups
                         _LOGGER.debug("Processing list of %d items", len(data))
-                        
                         for item in data:
-                            if not isinstance(item, dict):
-                                _LOGGER.debug("Skipping non-dict item: %s", type(item))
-                                continue
-                            
-                            # Look for name and ID fields with various possible keys
-                            name = None
-                            item_id = None
-                            
-                            # Try different name fields
-                            for name_key in ["navn", "name", "Navn", "Name", "title", "label"]:
-                                if name_key in item and item[name_key]:
-                                    name = item[name_key]
-                                    break
-                            
-                            # Try different ID fields
-                            for id_key in ["id", "ID", "Id", "kundegruppe_id", "KundegruppeID", "value"]:
-                                if id_key in item and item[id_key] is not None:
-                                    try:
-                                        item_id = int(item[id_key])
+                            if isinstance(item, dict):
+                                # Check for different possible key names
+                                name_key = None
+                                id_key = None
+                                
+                                # Common variations for name
+                                for key in ["navn", "name", "Navn", "Name"]:
+                                    if key in item:
+                                        name_key = key
                                         break
-                                    except (ValueError, TypeError):
+                                
+                                # Common variations for ID
+                                for key in ["id", "ID", "Id", "kundegruppe_id", "KundegruppeID"]:
+                                    if key in item:
+                                        id_key = key
+                                        break
+                                
+                                if name_key and id_key:
+                                    try:
+                                        groups.append({
+                                            "id": int(item[id_key]),
+                                            "name": item[name_key]
+                                        })
+                                    except (ValueError, TypeError) as e:
+                                        _LOGGER.warning("Skipping item with invalid ID/name: %s", e)
                                         continue
-                            
-                            # If we found both name and ID, add the group
-                            if name and item_id is not None:
-                                groups.append({
-                                    "id": item_id,
-                                    "name": str(name).strip()
-                                })
-                                _LOGGER.debug("Added group: ID=%s, Name=%s", item_id, name)
+                                else:
+                                    _LOGGER.debug("Item missing name or id keys: %s", list(item.keys()))
                             else:
-                                _LOGGER.debug("Skipping item missing name or ID. Keys: %s", list(item.keys()))
-                                if item:
-                                    _LOGGER.debug("Item content: %s", item)
-                    
-                    # Handle dict format (fallback)
+                                _LOGGER.debug("Skipping non-dict item: %s", type(item))
+                                
                     elif isinstance(data, dict):
-                        _LOGGER.debug("Processing dict format")
+                        # API returns a dictionary (fallback to old format)
+                        _LOGGER.debug("Processing dictionary format")
                         
-                        # Look for groups in various dict structures
-                        groups_data = None
-                        for key in ["kundegrupper", "customers", "groups", "customer_groups", "data", "items"]:
+                        # Look for different possible container keys
+                        possible_keys = ["kundegrupper", "customers", "groups", "customer_groups", "data"]
+                        found_key = None
+                        for key in possible_keys:
                             if key in data:
-                                groups_data = data[key]
-                                _LOGGER.debug("Found groups in key: %s", key)
+                                found_key = key
                                 break
                         
-                        if groups_data is None:
-                            # Maybe the dict itself contains the groups
-                            groups_data = data
+                        if found_key:
+                            kundegrupper = data[found_key]
+                        else:
+                            # Maybe the data itself contains the groups
+                            kundegrupper = data
                         
-                        if isinstance(groups_data, dict):
-                            # Dict of groups
-                            for group_id, group_data in groups_data.items():
-                                if isinstance(group_data, dict):
-                                    name = group_data.get("navn") or group_data.get("name")
-                                    if name:
-                                        try:
-                                            groups.append({
-                                                "id": int(group_id),
-                                                "name": str(name).strip()
-                                            })
-                                        except (ValueError, TypeError):
-                                            _LOGGER.debug("Skipping group with invalid ID: %s", group_id)
-                        
-                        elif isinstance(groups_data, list):
-                            # List within dict - use same logic as direct list
-                            for item in groups_data:
+                        if isinstance(kundegrupper, dict):
+                            for group_id, group_data in kundegrupper.items():
+                                if isinstance(group_data, dict) and "navn" in group_data:
+                                    try:
+                                        groups.append({
+                                            "id": int(group_id),
+                                            "name": group_data["navn"]
+                                        })
+                                    except ValueError as e:
+                                        _LOGGER.warning("Skipping group with invalid ID '%s': %s", group_id, e)
+                                        continue
+                        elif isinstance(kundegrupper, list):
+                            # Nested list in dictionary
+                            for item in kundegrupper:
                                 if isinstance(item, dict):
-                                    name = None
-                                    item_id = None
+                                    # Use same logic as for direct list
+                                    name_key = None
+                                    id_key = None
                                     
-                                    for name_key in ["navn", "name", "Navn", "Name"]:
-                                        if name_key in item and item[name_key]:
-                                            name = item[name_key]
+                                    for key in ["navn", "name", "Navn", "Name"]:
+                                        if key in item:
+                                            name_key = key
                                             break
                                     
-                                    for id_key in ["id", "ID", "Id", "kundegruppe_id", "KundegruppeID"]:
-                                        if id_key in item and item[id_key] is not None:
-                                            try:
-                                                item_id = int(item[id_key])
-                                                break
-                                            except (ValueError, TypeError):
-                                                continue
+                                    for key in ["id", "ID", "Id", "kundegruppe_id", "KundegruppeID"]:
+                                        if key in item:
+                                            id_key = key
+                                            break
                                     
-                                    if name and item_id is not None:
-                                        groups.append({
-                                            "id": item_id,
-                                            "name": str(name).strip()
-                                        })
-                    
+                                    if name_key and id_key:
+                                        try:
+                                            groups.append({
+                                                "id": int(item[id_key]),
+                                                "name": item[name_key]
+                                            })
+                                        except (ValueError, TypeError) as e:
+                                            _LOGGER.warning("Skipping item with invalid ID/name: %s", e)
+                                            continue
                     else:
                         _LOGGER.error("Response is neither list nor dict: %s", type(data))
-                        raise InvalidData(f"Unexpected response type: {type(data)}")
+                        raise InvalidData(f"Expected list or dict, got {type(data)}")
                     
                     if not groups:
                         _LOGGER.error("No valid groups found in response")
-                        _LOGGER.debug("Response data: %s", data)
-                        raise InvalidData("No valid customer groups found in API response")
+                        raise InvalidData("No valid customer groups found")
                     
-                    _LOGGER.debug("Successfully parsed %d customer groups", len(groups))
+                    _LOGGER.debug("Successfully fetched %d customer groups", len(groups))
                     return sorted(groups, key=lambda x: x["name"])
                     
         except aiohttp.ClientError as e:
             _LOGGER.error("Network error fetching customer groups: %s", e)
             raise CannotConnect(f"Network error: {e}")
-        except (CannotConnect, InvalidData):
-            # Re-raise these specific exceptions
-            raise
         except Exception as e:
             _LOGGER.error("Unexpected error fetching customer groups: %s", e, exc_info=True)
             raise CannotConnect(f"Unexpected error: {e}")
