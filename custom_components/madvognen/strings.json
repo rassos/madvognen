@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Madvognen Setup",
+        "description": "Set up Madvognen menu integration. This will fetch available customer groups."
+      },
+      "select_group": {
+        "title": "Select Customer Group",
+        "description": "Found {count} customer groups. Please select your school/institution.",
+        "data": {
+          "customer_group": "Customer Group"
+        }
+      },
+      "date_format": {
+        "title": "Date Format",
+        "description": "Choose how dates should be displayed for {group_name}.",
+        "data": {
+          "date_format": "Date Format"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This customer group is already configured",
+      "cannot_connect": "Failed to connect to Madvognen API",
+      "no_customer_groups": "No customer groups found",
+      "invalid_group": "Invalid customer group selected"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Madvognen Options",
+        "description": "Change settings for your Madvognen integration.",
+        "data": {
+          "date_format": "Date Format"
+        }
+      }
+    }
+  }
+}
